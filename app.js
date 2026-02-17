@@ -57,6 +57,7 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
         },
       });
     }
+    
     // "challenge" command
     if (name === 'challenge' && id) {
       // Interaction context
