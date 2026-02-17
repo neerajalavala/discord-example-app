@@ -4,7 +4,7 @@ const DEFAULT_RESTRICTED_TERMS = ['sell'];
 const DEFAULT_PRICE_KEYWORDS = ['usd', 'shipped'];
 const DEFAULT_RULE_CHANNEL_NAMES = ['chatter'];
 const DEFAULT_MOD_LOG_CHANNEL_NAME = 'mod-log';
-const DEFAULT_COOLDOWN_SECONDS = 120;
+const DEFAULT_COOLDOWN_SECONDS = 0;
 
 function parseCsvList(value) {
   if (!value) {
@@ -229,11 +229,29 @@ function bumpMetrics(state, message, detection) {
   }
 }
 
-function buildWarningMessage(config) {
-  const lines = [
-    'Restricted terms/prices are not allowed here.',
-    'Please edit your message to remove them.',
-  ];
+function buildWarningMessage(config, detection, message) {
+  const lines = [];
+  const matchedTermSet = new Set(detection.matchedTerms.map((term) => term.toLowerCase()));
+  const hasWordMatch = detection.triggerTypes.includes('word match');
+  const hasPriceMatch = detection.triggerTypes.includes('price pattern');
+  const channelLabel = message.channel?.name ? `#${message.channel.name}` : `<#${message.channelId}>`;
+
+  if (matchedTermSet.has('sell')) {
+    lines.push('Please use the word "rehome" instead.');
+  } else if (hasWordMatch) {
+    lines.push('Restricted terms are not allowed here. Please edit your message to remove them.');
+  }
+
+  if (hasPriceMatch) {
+    lines.push(
+      `Please refrain from using prices in ${channelLabel} and send prices only in DMs.`,
+    );
+  }
+
+  if (lines.length === 0) {
+    lines.push('Restricted terms/prices are not allowed here.');
+    lines.push('Please edit your message to remove them.');
+  }
 
   if (config.rulesUrl) {
     lines.push(`Rules: ${config.rulesUrl}`);
@@ -352,7 +370,7 @@ async function handleTriggeredMessage(message, detection, config, state) {
   if (!shouldSuppressWarning) {
     try {
       await message.reply({
-        content: buildWarningMessage(config),
+        content: buildWarningMessage(config, detection, message),
         allowedMentions: { repliedUser: true },
       });
     } catch (error) {
