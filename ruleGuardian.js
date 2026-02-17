@@ -1,5 +1,7 @@
 import { ChannelType, Client, GatewayIntentBits } from 'discord.js';
 
+// Rule Guardian listens to live chat messages over the Discord Gateway.
+// This is separate from the tutorial's /interactions webhook flow.
 const DEFAULT_RESTRICTED_TERMS = ['sell'];
 const DEFAULT_PRICE_KEYWORDS = ['usd', 'shipped'];
 const DEFAULT_RULE_CHANNEL_NAMES = ['chatter'];
@@ -34,6 +36,7 @@ function normalizeSet(values) {
 }
 
 function buildConfig() {
+  // Runtime behavior is env-driven so you can tune rules without code changes.
   const restrictedTerms = parseCsvList(process.env.RG_RESTRICTED_TERMS);
   const priceKeywords = parseCsvList(process.env.RG_PRICE_KEYWORDS);
   const ruleChannelNames = parseCsvList(process.env.RG_RULE_CHANNEL_NAMES);
@@ -61,6 +64,7 @@ function buildConfig() {
 }
 
 function buildDetectors(config) {
+  // Compile regexes once at startup (faster than rebuilding on every message).
   const restrictedTermChecks = config.restrictedTerms.map((term) => ({
     term,
     regex: new RegExp(`\\b${escapeRegex(term)}\\b`, 'i'),
@@ -114,6 +118,7 @@ function isStandardTextChannel(message) {
 }
 
 function shouldProcessMessage(message, config) {
+  // Fast exit path: skip anything out of moderation scope.
   if (!message.inGuild()) {
     return false;
   }
@@ -132,14 +137,17 @@ function shouldProcessMessage(message, config) {
 
   // TODO(MVP-2): Skip trusted/mod roles with a configurable allowlist.
 
+  // If explicit IDs are configured, ID list is the source of truth.
   if (config.ruleChannelIds.size > 0) {
     return config.ruleChannelIds.has(message.channelId);
   }
 
+  // Name fallback makes local setup easier (ex: #chatter).
   return config.ruleChannelNames.has((message.channel.name || '').toLowerCase());
 }
 
 function detectContent(content, detectors, config) {
+  // We collect all matches first, then issue one consolidated decision.
   const matchedTerms = [];
   const matchedPriceSignals = [];
 
@@ -150,9 +158,11 @@ function detectContent(content, detectors, config) {
   }
 
   if (config.enablePricePattern) {
+    // Detect prices written like "$400", "£ 90", "€20.50".
     const symbolAmountMatches = content.match(/[$£€]\s?\d+(?:[.,]\d{1,2})?/gi) || [];
     matchedPriceSignals.push(...symbolAmountMatches);
 
+    // Also detect symbol-only usage (ex: "it is $400" can still include raw "$").
     const rawSymbolMatches = content.match(/[$£€]/g) || [];
     matchedPriceSignals.push(...rawSymbolMatches);
 
@@ -170,6 +180,7 @@ function detectContent(content, detectors, config) {
     }
   }
 
+  // Exception patterns override positive matches (if configured).
   if (exceptionMatches.length > 0) {
     return {
       triggered: false,
@@ -199,6 +210,7 @@ function detectContent(content, detectors, config) {
 }
 
 function isCoolingDown(state, message, config, now) {
+  // Cooldown key is per-user, per-channel to avoid repeated bot warnings.
   const cooldownKey = `${message.author.id}:${message.channelId}`;
   const lastWarningAt = state.cooldowns.get(cooldownKey);
 
@@ -211,6 +223,7 @@ function isCoolingDown(state, message, config, now) {
 }
 
 function bumpMetrics(state, message, detection) {
+  // In-memory daily counters reset at UTC day boundary.
   const currentDay = getUtcDay();
   if (state.metrics.day !== currentDay) {
     state.metrics.day = currentDay;
@@ -230,6 +243,7 @@ function bumpMetrics(state, message, detection) {
 }
 
 function buildWarningMessage(config, detection, message) {
+  // Build user guidance from the specific trigger(s), not a generic warning.
   const lines = [];
   const matchedTermSet = new Set(detection.matchedTerms.map((term) => term.toLowerCase()));
   const hasWordMatch = detection.triggerTypes.includes('word match');
@@ -261,6 +275,8 @@ function buildWarningMessage(config, detection, message) {
 }
 
 async function resolveModLogChannel(message, config, state) {
+  // Lookup order:
+  // 1) in-memory cache, 2) explicit channel ID, 3) channel-name fallback
   const cacheKey = message.guildId;
   const cachedChannelId = state.modLogChannelIds.get(cacheKey);
   if (cachedChannelId) {
@@ -294,6 +310,7 @@ async function resolveModLogChannel(message, config, state) {
 }
 
 function buildModLogMessage(message, detection, config, warningStatus, warningError, state) {
+  // Keep log payload text-only and compact for quick moderator scanning.
   const topChannels = topEntries(state.metrics.byChannel)
     .map(([channelId, count]) => `<#${channelId}> (${count})`)
     .join(', ');
@@ -336,6 +353,7 @@ function buildModLogMessage(message, detection, config, warningStatus, warningEr
 }
 
 async function sendModLog(message, detection, config, state, warningStatus, warningError) {
+  // We still attempt mod logging even if user reply fails.
   try {
     const modLogChannel = await resolveModLogChannel(message, config, state);
     if (!modLogChannel) {
@@ -362,6 +380,7 @@ async function sendModLog(message, detection, config, state, warningStatus, warn
 }
 
 async function handleTriggeredMessage(message, detection, config, state) {
+  // Reply can be suppressed by cooldown, but the event is still logged.
   const now = Date.now();
   const shouldSuppressWarning = isCoolingDown(state, message, config, now);
   let warningStatus = shouldSuppressWarning ? 'cooldown_suppressed' : 'sent';
@@ -383,6 +402,7 @@ async function handleTriggeredMessage(message, detection, config, state) {
 }
 
 async function onMessageCreate(message, config, detectors, state) {
+  // Main moderation pipeline for each live message event.
   if (!shouldProcessMessage(message, config)) {
     return;
   }
@@ -397,6 +417,7 @@ async function onMessageCreate(message, config, detectors, state) {
 }
 
 export function startRuleGuardian() {
+  // Bootstraps the live-message client used for moderation.
   const config = buildConfig();
   if (!config.enabled) {
     console.log('Rule Guardian is disabled. Set RG_ENABLED=true to enable it.');
@@ -410,6 +431,7 @@ export function startRuleGuardian() {
 
   const detectors = buildDetectors(config);
   const state = {
+    // In-memory storage for MVP-1 (resets on process restart).
     cooldowns: new Map(),
     modLogChannelIds: new Map(),
     metrics: {
@@ -422,8 +444,10 @@ export function startRuleGuardian() {
 
   const client = new Client({
     intents: [
+      // Required for server/channel metadata and message events.
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
+      // Required to read message.content; must be enabled in Developer Portal.
       GatewayIntentBits.MessageContent,
     ],
   });
@@ -442,6 +466,7 @@ export function startRuleGuardian() {
   });
 
   client.on('messageCreate', (message) => {
+    // This is the live chat hook: every new guild message passes through here.
     void onMessageCreate(message, config, detectors, state);
   });
 
