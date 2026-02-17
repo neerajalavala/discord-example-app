@@ -53,6 +53,23 @@ Fetching credentials is covered in detail in the [getting started guide](https:/
 
 > 🔑 Environment variables can be added to the `.env` file in Glitch or when developing locally, and in the Secrets tab in Replit (the lock icon on the left).
 
+### Rule Guardian setup (MVP-1)
+
+This app now includes a basic Rule Guardian flow that reads messages from one channel and writes logs to another.
+
+1. Copy `.env.sample` to `.env` and set:
+   - `RG_RULE_CHANNEL_NAMES=chatter`
+   - `RG_MOD_LOG_CHANNEL_NAME=mod-log`
+2. Create both channels in your server:
+   - `#chatter` (rule-enforced channel)
+   - `#mod-log` (moderation logs)
+3. In the Discord Developer Portal:
+   - **OAuth2 > URL Generator**:
+     - Scopes: `bot`, `applications.commands`
+     - Bot permissions: `View Channels`, `Read Message History`, `Send Messages` (`Embed Links` optional)
+   - **Bot > Privileged Gateway Intents**:
+     - Enable `Message Content Intent`
+
 ### Install slash commands
 
 The commands for the example app are set up in `commands.js`. All of the commands in the `ALL_COMMANDS` array at the bottom of `commands.js` will be installed when you run the `register` command configured in `package.json`:

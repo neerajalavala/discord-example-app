@@ -10,6 +10,7 @@ import {
 } from 'discord-interactions';
 import { getRandomEmoji, DiscordRequest } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
+import { startRuleGuardian } from './ruleGuardian.js';
 
 // Create an express app
 const app = express();
@@ -203,6 +204,8 @@ app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async fun
   console.error('unknown interaction type', type);
   return res.status(400).json({ error: 'unknown interaction type' });
 });
+
+startRuleGuardian();
 
 app.listen(PORT, () => {
   console.log('Listening on port', PORT);
